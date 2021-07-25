@@ -3,15 +3,19 @@ import (
 	"strconv"
 	"fmt"
 	"math"
+	"bytes"
+	"errors"
+	"encoding/gob"
+	"io"
 )
 
-type Error struct{ string }
-
 var (
-	ErrShape = Error{"mat: dimension mismatch"}
+	ErrShape = errors.New("mat: dimension mismatch")
 )
 
 type fixed int64
+
+const maxLen = int64(int(^uint(0) >> 1))
 
 type Matrix struct {
 	row, col int;
@@ -30,6 +34,16 @@ func NewMatrix(r, c int, nums []fixed) *Matrix {
 	}
 	mat := Matrix{row: r, col: c, data: data};
 	return &mat;
+}
+
+func Copy(m *Matrix) *Matrix {
+	data := make([]fixed, m.row*m.col)
+	for i:=0; i<m.row; i++{
+		for j:=0; j<m.col; j++{
+			data[i*m.col + j] = m.data[i][j]
+		}
+	}
+	return NewMatrix(m.row, m.col, data)
 }
 
 func (m *Matrix) Dims() (r,c int){
@@ -86,14 +100,13 @@ func (m *Matrix) Sub(a, b *Matrix) {
 	}
 }
 // As long as a or b is not m, this works fine
-func Product(a, b *Matrix) *Matrix{
+func (m *Matrix) Product(a, b *Matrix) {
 	ar, ac := a.Dims()
 	br, bc := b.Dims()
 
 	if ac != br {
 		panic(ErrShape)
 	}
-	m := NewMatrix(ar,bc,make([]fixed, ar*bc))
 
 	for i := 0; i < ar; i++ {
 		for j := 0; j < bc; j++ {
@@ -104,7 +117,6 @@ func Product(a, b *Matrix) *Matrix{
 			m.Set(i, j, sum)
 		}
 	}
-	return m;
 }
 
 func (m *Matrix) T() *Matrix{
@@ -135,6 +147,30 @@ func (m *Matrix) Apply(fn func(i, j int, v fixed) fixed, a *Matrix){
 			m.Set(r, c, fn(r, c, a.At(r, c)))
 		}
 	}
+}
+
+func Min(m *Matrix) fixed{
+	min := m.At(0,0)
+	for r:=0;r<m.row;r++{
+		for c:=0;c<m.col;c++{
+			if(m.At(r,c)<min){
+				min = m.At(r,c)
+			}
+		}
+	}
+	return min
+}
+
+func Max(m *Matrix) fixed{
+	max := m.At(0,0)
+	for r:=0;r<m.row;r++{
+		for c:=0;c<m.col;c++{
+			if(m.At(r,c)>max){
+				max = m.At(r,c)
+			}
+		}
+	}
+	return max
 }
 
 //need to account for things like negative numbers properly, fix after i optimize this to not use loops;
@@ -183,6 +219,10 @@ func DivideFixed(a, b fixed) fixed{
     b = -b
     isNegative = !isNegative
   }
+  if(b == 0){
+  	fmt.Printf("Divide By Zero Error\n")
+    return -fixed(0x7fffffffffffffff)
+  }
   if(b == (b>>48)<<48){
     return a / (b>>48)
   }
@@ -191,6 +231,20 @@ func DivideFixed(a, b fixed) fixed{
     res = -res
   }
   return res
+}
+
+func fixedMax(a, b fixed) fixed{
+	if(a >= b){
+		return a
+	}
+	return b
+}
+
+func fixedMin(a, b fixed) fixed{
+	if(a <= b){
+		return a
+	}
+	return b
 }
 
 func abs(x int64)int64{
@@ -337,7 +391,7 @@ func toInt(x fixed)int64{
   return int64(x)
 }
 
-func intToFixed(x int64) fixed{
+func intToFixed(x int) fixed{
 	isNegative := x < 0
   x = x << 48
   if(isNegative){
@@ -373,13 +427,6 @@ func toFloat(a fixed) float64{
 	return (out * float64(int64(a)))/0x1000000000000
 }
 
-func genlookuptable(){
-	for i:=-48;i<16;i++{
-		x := floatToFixed(math.Exp(math.Pow(2,float64(i))))
-		fmt.Printf(x.String()+"\n")
-	}
-}
-
 func (f fixed) String() string {
 	s := ""
 	if(f<0){
@@ -390,4 +437,46 @@ func (f fixed) String() string {
 	s += fmt.Sprintf("%d", f >> 48)
 	s += strconv.FormatFloat(toFloat(b), 'f', -1, 64)[1:]
   return s 
+}
+
+func (m *Matrix) Resize(r, c int){
+	data := make([][]fixed, r);
+	for i:=0; i<r; i++{
+		data[i] = make([]fixed, c);
+		for j:=0; j<c; j++{
+			if((i<m.row) && (j < m.col)){
+				data[i][j] = m.data[i][j];
+			} else {
+				data[i][j] = fixed(0)
+			}
+		}
+	}
+	m.data = data
+}
+
+type wrapMatrix struct {
+	Row, Col int;
+	Data [][]fixed;
+}
+
+func (m *Matrix) MarshalBinaryTo() (io.Reader, error) {
+  w := wrapMatrix{m.row, m.col, m.data}
+  var buf bytes.Buffer
+  enc := gob.NewEncoder(&buf)
+  if err := enc.Encode(w); err != nil {
+    return nil, err
+  }
+  return bytes.NewReader(buf.Bytes()), nil
+}
+
+func (m *Matrix) UnmarshalBinaryFrom(reader io.Reader) error {
+  w := wrapMatrix{}
+  dec := gob.NewDecoder(reader)
+  if err := dec.Decode(&w); err != nil {
+    return err
+  }
+  m.row = w.Row
+  m.col = w.Col
+  m.data = w.Data
+  return nil
 }

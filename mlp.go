@@ -7,8 +7,8 @@ import (
 	"math"
 	"encoding/csv"
 	"os"
-	"gonum.org/v1/gonum/mat"
 	"gonum.org/v1/gonum/stat/distuv"
+	"io"
 )
 
 // Network is a neural network with 3 layers
@@ -16,49 +16,49 @@ type Network struct {
 	inputs       	int
 	hiddens      	int
 	outputs      	int
-	learningRate 	float64
-	hiddenWeights 	*mat.Dense
-	outputWeights 	*mat.Dense
-	hidden_max		float64
-	hidden_min		float64
-	out_max			float64
-	out_min			float64
+	learningRate 	fixed
+	hiddenWeights 	*Matrix
+	outputWeights 	*Matrix
+	hidden_max		fixed
+	hidden_min		fixed
+	out_max			fixed
+	out_min			fixed
 	score			int
 }
 
 // CreateNetwork creates a neural network with random weights
-func CreateNetwork(input, hidden, output int, rate float64) (net Network) {
+func CreateNetwork(input, hidden, output int, rate fixed) (net Network) {
 	net = Network{
 		inputs:       input,
 		hiddens:      hidden,
 		outputs:      output,
 		learningRate: rate,
 	}
-	net.hiddenWeights = mat.NewDense(net.hiddens, net.inputs, randomArray(net.inputs*net.hiddens, float64(net.inputs)))
-	net.hidden_min = mat.Min(net.hiddenWeights)
-	net.hidden_max = mat.Max(net.hiddenWeights)
-	net.outputWeights = mat.NewDense(net.outputs, net.hiddens, randomArray(net.hiddens*net.outputs, float64(net.hiddens)))
-	net.out_min = mat.Min(net.outputWeights)
-	net.out_max = mat.Max(net.outputWeights)
+	net.hiddenWeights = NewMatrix(net.hiddens, net.inputs, randomArray(net.inputs*net.hiddens, float64(net.inputs)))
+	net.hidden_min = Min(net.hiddenWeights)
+	net.hidden_max = Max(net.hiddenWeights)
+	net.outputWeights = NewMatrix(net.outputs, net.hiddens, randomArray(net.hiddens*net.outputs, float64(net.hiddens)))
+	net.out_min = Min(net.outputWeights)
+	net.out_max = Max(net.outputWeights)
 
 	return
 }
 
 // Train the neural network
-func (net *Network) Train(inputData []float64, targetData []float64) {
+func (net *Network) Train(inputData []fixed, targetData []fixed) {
 	// feedforward
-	inputs := mat.NewDense(len(inputData), 1, inputData)
+	inputs := NewMatrix(len(inputData), 1, inputData)
 	hiddenInputs := dot(net.hiddenWeights, inputs)
 	hiddenOutputs := apply(sigmoid, hiddenInputs)
 	finalInputs := dot(net.outputWeights, hiddenOutputs)
 	finalOutputs := apply(sigmoid, finalInputs)
 
 	// find errors
-	targets := mat.NewDense(len(targetData), 1, targetData)
+	targets := NewMatrix(len(targetData), 1, targetData)
 	outputErrors := subtract(targets, finalOutputs)
 	hiddenErrors := dot(net.outputWeights.T(), outputErrors)
 
-	copy := mat.DenseCopyOf(outputErrors)
+	copy := Copy(outputErrors)
 	copy.MulElem(copy, outputErrors)
 	//net.errors = math.Sqrt(mat.Sum(copy))
 
@@ -66,54 +66,57 @@ func (net *Network) Train(inputData []float64, targetData []float64) {
 	net.outputWeights = add(net.outputWeights,
 		scale(net.learningRate,
 			dot(multiply(outputErrors, sigmoidPrime(finalOutputs)),
-				hiddenOutputs.T()))).(*mat.Dense)
+				hiddenOutputs.T())))
 
 	net.hiddenWeights = add(net.hiddenWeights,
 		scale(net.learningRate,
 			dot(multiply(hiddenErrors, sigmoidPrime(hiddenOutputs)),
-				inputs.T()))).(*mat.Dense)
+				inputs.T())))
 }
 
 // Predict uses the neural network to predict the value given input data
-func (net Network) Predict(inputData []float64) mat.Matrix {
+func (net Network) Predict(inputData []fixed) Matrix {
 	// feedforward
-	inputs := mat.NewDense(len(inputData), 1, inputData)
+	inputs := NewMatrix(len(inputData), 1, inputData)
 	hiddenInputs := dot(net.hiddenWeights, inputs)
 	hiddenOutputs := apply(sigmoid, hiddenInputs)
 	finalInputs := dot(net.outputWeights, hiddenOutputs)
 	finalOutputs := apply(sigmoid, finalInputs)
-	return finalOutputs
+	return *finalOutputs
 }
 
-func sigmoid(r, c int, z float64) float64 {
-	return 1.0 / (1 + math.Exp(-1*z))
-}
-
-func sigmoidPrime(m mat.Matrix) mat.Matrix {
-	rows, _ := m.Dims()
-	o := make([]float64, rows)
-	for i := range o {
-		o[i] = 1
+func sigmoid(r, c int, z fixed) fixed {
+	if(z < -fixed(0x00000000000000)){
+		return fixed(0)
 	}
-	ones := mat.NewDense(rows, 1, o)
+	return DivideFixed(ONE, ONE + exp(-z))
+}
+
+func sigmoidPrime(m *Matrix) *Matrix {
+	rows, _ := m.Dims()
+	o := make([]fixed, rows)
+	for i := range o {
+		o[i] = ONE
+	}
+	ones := NewMatrix(rows, 1, o)
 	return multiply(m, subtract(ones, m)) // m * (1 - m)
 }
 
-func relu(r, c int, z float64) float64 {
+func relu(r, c int, z fixed) fixed {
 	if z>0 {
 		return z
 	}
 	return 0
 }
 
-func relup(r, c int, z float64) float64 {
+func relup(r, c int, z fixed) fixed {
 	if z>0 {
 		return 1
 	}
 	return 0
 }
 
-func reluPrime(m mat.Matrix) mat.Matrix {
+func reluPrime(m *Matrix) *Matrix {
 	return apply(relup, m)
 }
 
@@ -121,77 +124,76 @@ func reluPrime(m mat.Matrix) mat.Matrix {
 // Helper functions to allow easier use of Gonum
 //
 
-func dot(m, n mat.Matrix) mat.Matrix {
+func dot(m, n *Matrix) *Matrix {
 	r, _ := m.Dims()
 	_, c := n.Dims()
-	o := mat.NewDense(r, c, nil)
+	o := NewMatrix(r, c, nil)
 	o.Product(m, n)
 	return o
 }
 
-func apply(fn func(i, j int, v float64) float64, m mat.Matrix) mat.Matrix {
+func apply(fn func(i, j int, v fixed) fixed, m *Matrix) *Matrix {
 	r, c := m.Dims()
-	o := mat.NewDense(r, c, nil)
+	o := NewMatrix(r, c, nil)
 	o.Apply(fn, m)
 	return o
 }
 
-func scale(s float64, m mat.Matrix) mat.Matrix {
-	r, c := m.Dims()
-	o := mat.NewDense(r, c, nil)
-	o.Scale(s, m)
+func scale(s fixed, m *Matrix) *Matrix {
+	o := Copy(m)
+	o.Scale(s)
 	return o
 }
 
-func multiply(m, n mat.Matrix) mat.Matrix {
+func multiply(m, n *Matrix) *Matrix {
 	r, c := m.Dims()
-	o := mat.NewDense(r, c, nil)
+	o := NewMatrix(r, c, nil)
 	o.MulElem(m, n)
 	return o
 }
 
-func add(m, n mat.Matrix) mat.Matrix {
+func add(m, n *Matrix) *Matrix {
 	r, c := m.Dims()
-	o := mat.NewDense(r, c, nil)
+	o := NewMatrix(r, c, nil)
 	o.Add(m, n)
 	return o
 }
 
-func addScalar(i float64, m mat.Matrix) mat.Matrix {
+func addScalar(i fixed, m *Matrix) *Matrix {
 	r, c := m.Dims()
-	a := make([]float64, r*c)
+	a := make([]fixed, r*c)
 	for x := 0; x < r*c; x++ {
 		a[x] = i
 	}
-	n := mat.NewDense(r, c, a)
+	n := NewMatrix(r, c, a)
 	return add(m, n)
 }
 
-func subtract(m, n mat.Matrix) mat.Matrix {
+func subtract(m, n *Matrix) *Matrix {
 	r, c := m.Dims()
-	o := mat.NewDense(r, c, nil)
+	o := NewMatrix(r, c, nil)
 	o.Sub(m, n)
 	return o
 }
 
 // randomly generate a float64 array
-func randomArray(size int, v float64) (data []float64) {
+func randomArray(size int, v float64) (data []fixed) {
 	dist := distuv.Uniform{
 		Min: -1 / math.Sqrt(v),
 		Max: 1 / math.Sqrt(v),
 	}
 
-	data = make([]float64, size)
+	data = make([]fixed, size)
 	for i := 0; i < size; i++ {
 		// data[i] = rand.NormFloat64() * math.Pow(v, -0.5)
-		data[i] = dist.Rand()
+		data[i] = floatToFixed(dist.Rand())
 	}
 	return
 }
 
-func addBiasNodeTo(m mat.Matrix, b float64) mat.Matrix {
+func addBiasNodeTo(m *Matrix, b fixed) *Matrix {
 	r, _ := m.Dims()
-	a := mat.NewDense(r+1, 1, nil)
+	a := NewMatrix(r+1, 1, nil)
 
 	a.Set(0, 0, b)
 	for i := 0; i < r; i++ {
@@ -201,26 +203,53 @@ func addBiasNodeTo(m mat.Matrix, b float64) mat.Matrix {
 }
 
 // pretty print a Gonum matrix
-func matrixPrint(X mat.Matrix) {
+/*func matrixPrint(X Matrix) {
 	fa := mat.Formatted(X, mat.Prefix(""), mat.Squeeze())
 	fmt.Printf("%v\n", fa)
-}
+}*/
 
-func save(net Network) {
-	h, err := os.Create("data/hweights.model")
-	defer h.Close()
-	if err == nil {
-		net.hiddenWeights.MarshalBinaryTo(h)
+func save(net Network, dataset string) {
+	var oweights string
+	var hweights string
+	switch dataset {
+			case "numbers":
+				hweights = "data/numbers_hweights.model"
+				oweights = "data/numbers_oweights.model"
+			case "fashion":
+				hweights = "data/fashion_hweights.model"
+				oweights = "data/fashion_oweights.model"
+			default:
+				hweights = "data/numbers_hweights.model"
+				oweights = "data/numbers_oweights.model"
 	}
-	o, err := os.Create("data/oweights.model")
+	h, err := os.Create(hweights)
+	o, err2 := os.Create(oweights)
+	defer h.Close()
 	defer o.Close()
 	if err == nil {
-		net.outputWeights.MarshalBinaryTo(o)
+		r, err := net.hiddenWeights.MarshalBinaryTo()
+		if err == nil {
+    		_, err = io.Copy(h, r)
+  		}
+	}
+	if err2 == nil {
+		r, err := net.outputWeights.MarshalBinaryTo()
+		if err == nil {
+    		_, err = io.Copy(o, r)
+  		}
 	}
 }
 
-func save_plot(net Network, value [][]string) {
-	file, _ := os.Create("data/plot.csv")
+func save_plot(net Network, dataset string, value [][]string) {
+	var file *os.File
+	switch dataset {
+			case "numbers":
+				file, _ = os.Create("data/numbers_plot.csv")
+			case "fashion":
+				file, _ = os.Create("data/fashion_plot.csv")
+			default:
+				file, _ = os.Create("data/numbers_plot.csv")
+	}
     defer file.Close()
     w := csv.NewWriter(file)
     defer w.Flush()
@@ -228,17 +257,28 @@ func save_plot(net Network, value [][]string) {
 }
 
 // load a neural network from file
-func load(net *Network) {
-	h, err := os.Open("data/hweights.model")
-	defer h.Close()
-	if err == nil {
-		net.hiddenWeights.Reset()
-		net.hiddenWeights.UnmarshalBinaryFrom(h)
+func load(net *Network, dataset string) {
+	var oweights string
+	var hweights string
+	switch dataset {
+			case "numbers":
+				hweights = "data/numbers_hweights.model"
+				oweights = "data/numbers_oweights.model"
+			case "fashion":
+				hweights = "data/fashion_hweights.model"
+				oweights = "data/fashion_oweights.model"
+			default:
+				hweights = "data/numbers_hweights.model"
+				oweights = "data/numbers_oweights.model"
 	}
-	o, err := os.Open("data/oweights.model")
+	h, err := os.Create(hweights)
+	o, err2 := os.Create(oweights)
+	defer h.Close()
 	defer o.Close()
 	if err == nil {
-		net.outputWeights.Reset()
+		net.hiddenWeights.UnmarshalBinaryFrom(h)
+	}
+	if err2 == nil {
 		net.outputWeights.UnmarshalBinaryFrom(o)
 	}
 	return
@@ -249,9 +289,9 @@ func load(net *Network) {
 func predictFromImage(net Network, path string) int {
 	input := dataFromImage(path)
 	output := net.Predict(input)
-	matrixPrint(output)
+	//matrixPrint(output)
 	best := 0
-	highest := 0.0
+	highest := fixed(0)
 	for i := 0; i < net.outputs; i++ {
 		if output.At(i, 0) > highest {
 			best = i
@@ -262,7 +302,7 @@ func predictFromImage(net Network, path string) int {
 }
 
 // get the pixel data from an image
-func dataFromImage(filePath string) (pixels []float64) {
+func dataFromImage(filePath string) (pixels []fixed) {
 	// read the file
 	imgFile, err := os.Open(filePath)
 	defer imgFile.Close()
@@ -285,32 +325,32 @@ func dataFromImage(filePath string) (pixels []float64) {
 		}
 	}
 	// make a pixel array
-	pixels = make([]float64, len(gray.Pix))
+	pixels = make([]fixed, len(gray.Pix))
 	// populate the pixel array subtract Pix from 255 because that's how
 	// the MNIST database was trained (in reverse)
 	for i := 0; i < len(gray.Pix); i++ {
-		pixels[i] = (float64(255-gray.Pix[i]) / 255.0 * 0.999) + 0.001
+		pixels[i] = floatToFixed((float64(255-gray.Pix[i]) / 255.0 * 0.999) + 0.001)
 	}
 	return
 }
 
-func max_weights(m, n mat.Matrix) *mat.Dense {
+func max_weights(m, n Matrix) *Matrix {
 	r, c := m.Dims()
-	o := mat.NewDense(r, c, nil)
+	o := NewMatrix(r, c, nil)
 	for i := 0; i < r; i++ {
 		for j := 0; j < c; j++ {
-			o.Set(i, j, math.Max(m.At(i, j), n.At(i, j)))
+			o.Set(i, j, fixedMax(m.At(i, j), n.At(i, j)))
 		}
 	} 
 	return o
 }
 
-func min_weights(m, n mat.Matrix) *mat.Dense {
+func min_weights(m, n Matrix) *Matrix {
 	r, c := m.Dims()
-	o := mat.NewDense(r, c, nil)
+	o := NewMatrix(r, c, nil)
 	for i := 0; i < r; i++ {
 		for j := 0; j < c; j++ {
-			o.Set(i, j, math.Min(m.At(i, j), n.At(i, j)))
+			o.Set(i, j, fixedMin(m.At(i, j), n.At(i, j)))
 		}
 	} 
 	return o
