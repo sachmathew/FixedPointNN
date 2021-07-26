@@ -8,11 +8,12 @@ to run: run command
 followed by flags
 
 flags:
-mnist (train or predict with mnist numbers dataset)
+numbers (train or predict with mnist numbers dataset)
+fashion (train or predict with mnist fashion dataset)
 file (run prediction on specific image file
 
 args:
-  mnist
+  numbers/fashion
   -train (trains net)
   -val (generates validation set for model comparison)
   -plot (trains and validates multiple iterations of model to test for accuracy at varying weight ranges)
