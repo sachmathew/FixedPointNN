@@ -16,6 +16,9 @@ import (
 	"time"
 	"github.com/vardius/progress-go"
 	"log"
+	"gonum.org/v1/plot"
+    "gonum.org/v1/plot/plotter"
+    "gonum.org/v1/plot/vg"
 )
 
 func main() {
@@ -41,6 +44,8 @@ func main() {
 		mnistPredict(&net, "numbers")
 	case "val":
 		generateValidation("numbers")
+	case "activation":
+		showActivation()
 	default:
 		// don't do anything
 	}
@@ -68,7 +73,28 @@ func main() {
 		// predict which number it is
 		fmt.Println("prediction:", predictFromImage(net, *file))
 	}
+}
 
+func showActivation() {
+	t1 := time.Now()
+    p := plot.New()
+
+    sig := plotter.NewFunction(func(x float64) float64 { return toFloat(sigmoid(0, 0, floatToFixed(x)))})
+    sig.Samples = 2048
+
+    p.Title.Text = "sigmoid plot"
+    p.Add(sig)
+
+    p.X.Min = -64
+	p.X.Max = 64
+	p.Y.Min = 0
+	p.Y.Max = 1
+ 
+    if err := p.Save(8*vg.Inch, 4*vg.Inch, "plot.png"); err != nil {
+        panic(err)
+    }
+    elapsed := time.Since(t1)
+	fmt.Printf("\nTime taken to generate activation image: %s\n", elapsed)
 }
 
 func generateValidation(dataset string) {
@@ -100,7 +126,6 @@ func generateValidation(dataset string) {
 	for i := 0; i < 1000; i++ {
 		record, err := r.Read()
 		if err == io.EOF {
-			fmt.Printf("oop")
 			break
 		}
 		err = w.Write(record)
@@ -265,6 +290,7 @@ func mnistTrainForPlot(net *Network, dataset string) {
 	save_plot(*net, dataset, value)
 	elapsed := time.Since(t1)
 	fmt.Printf("\nTime taken to collect for plotting: %s\n", elapsed)
+	mnistPredict(net, dataset)
 }
 
 func mnistPredict(net *Network, dataset string) {

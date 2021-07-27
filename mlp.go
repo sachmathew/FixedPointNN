@@ -86,7 +86,7 @@ func (net Network) Predict(inputData []fixed) Matrix {
 }
 
 func sigmoid(r, c int, z fixed) fixed {
-	if(z < -fixed(0x00000000000000)){
+	if(z < -fixed(0xA000000000000)){
 		return fixed(0)
 	}
 	return DivideFixed(ONE, ONE + exp(-z))
@@ -119,10 +119,6 @@ func relup(r, c int, z fixed) fixed {
 func reluPrime(m *Matrix) *Matrix {
 	return apply(relup, m)
 }
-
-//
-// Helper functions to allow easier use of Gonum
-//
 
 func dot(m, n *Matrix) *Matrix {
 	r, _ := m.Dims()

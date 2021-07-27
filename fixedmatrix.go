@@ -221,7 +221,7 @@ func DivideFixed(a, b fixed) fixed{
   }
   if(b == 0){
   	fmt.Printf("Divide By Zero Error\n")
-    return -fixed(0x7fffffffffffffff)
+    return -fixed(0x1000000000000)
   }
   if(b == (b>>48)<<48){
     return a / (b>>48)
