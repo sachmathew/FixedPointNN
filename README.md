@@ -1,4 +1,8 @@
 # FixedPointNN
+installing dependencies: 
+go get -u gonum.org/v1/gonum/...
+go get -u github.com/vardius/progress-go
+
 to compile: run command 
 go build
 in the directory containing the code files
